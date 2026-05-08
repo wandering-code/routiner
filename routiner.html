@@ -1288,6 +1288,25 @@ function renderStats() {
     <div class="kpi-card"><div class="kpi-val">${totalSeries}</div><div class="kpi-lbl">Series</div></div>
   </div>`;
 
+  // Group totals summary
+  const groupTotals = {};
+  Object.entries(groups).forEach(([g, muscles]) => {
+    groupTotals[g] = muscles.reduce((acc, m) => acc + (totals[m.id] || 0), 0);
+  });
+
+  html += `<div class="section-label">RESUMEN POR GRUPO</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:24px">
+    ${Object.entries(groupTotals).map(([g, v]) => `
+      <div class="kpi-card" style="text-align:left;padding:12px 14px">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px">${g}</div>
+        <div style="display:flex;align-items:baseline;gap:5px">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:${v>0?'var(--black)':'var(--border2)'};line-height:1">${v}</span>
+          <span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">series</span>
+        </div>
+      </div>`).join('')}
+  </div>`;
+
+  html += `<div class="section-label">DETALLE POR MÚSCULO</div>`;
   Object.entries(groups).forEach(([g, muscles]) => {
     html += `<div class="section-label">${g}</div>`;
     muscles.forEach(m => {
