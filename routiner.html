@@ -1291,10 +1291,10 @@ function openHevyAssignModal() {
     return `<div class="import-workout-row" id="iwr-${CSS.escape(title)}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
         <div class="import-workout-title">${title}</div>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--sub);text-transform:none;margin:0">
-          <input type="checkbox" id="skip-${CSS.escape(title)}" onchange="toggleSkip('${title.replace(/'/g,"\\'")}', this)" style="width:16px;height:16px;cursor:pointer;accent-color:var(--black)">
-          Ignorar
-        </label>
+        <div style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--sub)" onclick="document.getElementById('skip-'+CSS.escape('${title.replace(/'/g,"\\'")}')  ').click()">
+          <input type="checkbox" id="skip-${CSS.escape(title)}" onchange="toggleSkip('${title.replace(/'/g,"\\'")}', this)" style="width:16px;height:16px;cursor:pointer;accent-color:var(--black);flex-shrink:0" onclick="event.stopPropagation()">
+          <span style="font-size:12px;color:var(--sub);font-weight:400;letter-spacing:0;text-transform:none">Ignorar</span>
+        </div>
       </div>
       <div class="import-workout-meta">${exCount} ejercicio${exCount!==1?'s':''}</div>
       <div id="assign-fields-${CSS.escape(title)}">
@@ -1449,6 +1449,10 @@ function hevyFinishImport() {
 
 function populateMuscleDropdown(id) {
   const sel = document.getElementById(id);
+  const cur = sel.value;
+  const groups = {};
+  data.muscles.forEach(m => { if (!groups[m.group]) groups[m.group]=[]; groups[m.group].push(m); });
+  let html = '<option value="">— Selecciona músculo —</option>';
   Object.entries(groups).forEach(([g, ms]) => {
     html += `<optgroup label="${g}">`;
     ms.forEach(m => html += `<option value="${m.id}">${m.name}</option>`);
