@@ -818,7 +818,33 @@ function openRoutineActionSheet_id(id) {
     loadBtn.disabled = false; loadBtn.style.opacity = '1';
     loadBtn.onclick = () => { data.activeRoutineId = id; closeModal('modal-routine'); renderRutinas(); renderRutina(); renderStats(); scheduleSave(); toast('Rutina cargada'); };
   }
+
+  // Duplicate button
+  let dupBtn = document.getElementById('dupRoutineBtn');
+  if (!dupBtn) {
+    dupBtn = document.createElement('button');
+    dupBtn.id = 'dupRoutineBtn';
+    dupBtn.className = 'btn btn-ghost';
+    dupBtn.style.cssText = 'width:100%;margin-top:10px';
+    document.getElementById('deleteRoutineWrap').before(dupBtn);
+  }
+  dupBtn.textContent = '⧉ Duplicar rutina';
+  dupBtn.onclick = () => duplicateRoutine(id);
   openModal('modal-routine');
+}
+
+function duplicateRoutine(id) {
+  const r = data.routines.find(r => r.id === id);
+  if (!r) return;
+  const newId = 'r' + Date.now();
+  const copy = JSON.parse(JSON.stringify(r));
+  copy.id = newId;
+  copy.name = r.name + ' (copia)';
+  data.routines.push(copy);
+  closeModal('modal-routine');
+  renderRutinas();
+  scheduleSave();
+  toast('Rutina duplicada');
 }
 
 function openNewRoutineModal() {
@@ -829,6 +855,8 @@ function openNewRoutineModal() {
   document.getElementById('deleteRoutineWrap').style.display = 'none';
   const lb = document.getElementById('loadRoutineBtn');
   if (lb) lb.remove();
+  const db = document.getElementById('dupRoutineBtn');
+  if (db) db.remove();
   openModal('modal-routine');
 }
 
@@ -906,11 +934,17 @@ function buildDayCard(d, i) {
         return `<div class="ex-row">
           <div class="ex-info">
             <div class="ex-name">${ex.name}</div>
-            <div class="ex-meta">${m ? m.name : ''}&ensp;·&ensp;${item.reps || '—'} reps</div>
+            <div class="ex-meta">${m ? m.name : ''}</div>
           </div>
-          <div class="ex-sets-block">
-            <div class="ex-sets-num">${item.sets || '—'}</div>
-            <div class="ex-sets-lbl">series</div>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div class="ex-sets-block">
+              <div class="ex-sets-num">${item.reps || '—'}</div>
+              <div class="ex-sets-lbl">reps</div>
+            </div>
+            <div class="ex-sets-block">
+              <div class="ex-sets-num">${item.sets || '—'}</div>
+              <div class="ex-sets-lbl">series</div>
+            </div>
           </div>
         </div>`;
       }).join('');
