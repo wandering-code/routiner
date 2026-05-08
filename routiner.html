@@ -763,7 +763,7 @@ function openRoutineActionSheet_id(id) {
   } else {
     loadBtn.textContent = '▶ Cargar como activa';
     loadBtn.disabled = false; loadBtn.style.opacity = '1';
-    loadBtn.onclick = () => { data.activeRoutineId = id; closeModal('modal-routine'); renderRutinas(); renderRutina(); scheduleSave(); toast('Rutina cargada'); };
+    loadBtn.onclick = () => { data.activeRoutineId = id; closeModal('modal-routine'); renderRutinas(); renderRutina(); renderStats(); scheduleSave(); toast('Rutina cargada'); };
   }
   openModal('modal-routine');
 }
@@ -965,6 +965,7 @@ function saveDayEdits() {
   week[currentEditDay].exercises = tempDayEx;
   closeModal('modal-edit-day');
   renderRutina();
+  renderStats();
   scheduleSave();
 }
 
