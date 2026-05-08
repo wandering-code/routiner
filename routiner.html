@@ -1277,23 +1277,31 @@ function openHevyAssignModal() {
   // Init assignments
   hevyAssign = {};
   titles.forEach(t => {
-    hevyAssign[t] = {routineId: data.routines[0]?.id || '', dayIndex: 0};
+    hevyAssign[t] = {routineId: data.routines[0]?.id || '', dayIndex: 0, skip: false};
   });
 
   const html = titles.map(title => {
     const exCount = hevyParsed[title].length;
     const firstRoutineId = data.routines[0]?.id || '';
-    return `<div class="import-workout-row">
-      <div class="import-workout-title">${title}</div>
+    return `<div class="import-workout-row" id="iwr-${CSS.escape(title)}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div class="import-workout-title">${title}</div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--sub);text-transform:none;margin:0">
+          <input type="checkbox" id="skip-${CSS.escape(title)}" onchange="toggleSkip('${title.replace(/'/g,"\\'")}', this)" style="width:16px;height:16px;cursor:pointer;accent-color:var(--black)">
+          Ignorar
+        </label>
+      </div>
       <div class="import-workout-meta">${exCount} ejercicio${exCount!==1?'s':''}</div>
-      <label>Rutina destino</label>
-      <select id="assign-routine-${CSS.escape(title)}" onchange="updateDayOpts('${title.replace(/'/g,"\\'")}')">
-        ${routineOpts}
-      </select>
-      <label>Día destino</label>
-      <select id="assign-day-${CSS.escape(title)}">
-        ${dayOpts(firstRoutineId)}
-      </select>
+      <div id="assign-fields-${CSS.escape(title)}">
+        <label>Rutina destino</label>
+        <select id="assign-routine-${CSS.escape(title)}" onchange="updateDayOpts('${title.replace(/'/g,"\\'")}')">
+          ${routineOpts}
+        </select>
+        <label>Día destino</label>
+        <select id="assign-day-${CSS.escape(title)}">
+          ${dayOpts(firstRoutineId)}
+        </select>
+      </div>
     </div>`;
   }).join('');
 
@@ -1310,20 +1318,31 @@ function updateDayOpts(title) {
   document.getElementById('assign-day-' + CSS.escape(title)).innerHTML = opts;
 }
 
+function toggleSkip(title, checkbox) {
+  const fields = document.getElementById('assign-fields-' + CSS.escape(title));
+  if (fields) fields.style.opacity = checkbox.checked ? '.3' : '1';
+  if (fields) fields.style.pointerEvents = checkbox.checked ? 'none' : '';
+}
+
 function hevyProceedToConflicts() {
-  // Read assignments
+  // Read assignments — skip ignored
   Object.keys(hevyParsed).forEach(title => {
+    const skipEl = document.getElementById('skip-' + CSS.escape(title));
+    const skip = skipEl ? skipEl.checked : false;
     const rSel = document.getElementById('assign-routine-' + CSS.escape(title));
     const dSel = document.getElementById('assign-day-'     + CSS.escape(title));
     hevyAssign[title] = {
       routineId: rSel ? rSel.value : data.routines[0]?.id,
       dayIndex:  dSel ? parseInt(dSel.value) : 0,
+      skip,
     };
   });
 
-  // Find exercises not in library — fuzzy match
+  // Find exercises not in library — only from non-skipped workouts
   const allHevyNames = [...new Set(
-    Object.values(hevyParsed).flatMap(exs => exs.map(e => e.name))
+    Object.entries(hevyParsed)
+      .filter(([title]) => !hevyAssign[title]?.skip)
+      .flatMap(([, exs]) => exs.map(e => e.name))
   )];
 
   hevyConflicts = [];
@@ -1402,15 +1421,16 @@ function hevyFinishImport() {
     if (found) nameToId[ex.name] = found.id;
   });
 
-  // 2. Apply to each day
+  // 2. Apply to each day — skip ignored workouts
   Object.entries(hevyParsed).forEach(([title, exercises]) => {
-    const {routineId, dayIndex} = hevyAssign[title];
+    const {routineId, dayIndex, skip} = hevyAssign[title];
+    if (skip) return;
     const routine = data.routines.find(r => r.id === routineId);
     if (!routine || !routine.week[dayIndex]) return;
     const day = routine.week[dayIndex];
     day.type = 'gym';
     day.exercises = exercises
-      .filter(ex => nameToId[ex.name]) // skip ignored
+      .filter(ex => nameToId[ex.name])
       .map(ex => ({exId: nameToId[ex.name], sets: ex.sets, reps: ex.reps}));
   });
 
