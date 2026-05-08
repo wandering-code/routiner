@@ -353,6 +353,28 @@ label {
   padding: 3px 8px; border-radius: 4px; flex-shrink: 0;
 }
 
+/* ── IMPORT ── */
+.import-workout-row {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; margin-bottom: 10px; background: var(--faint);
+}
+.import-workout-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.import-workout-meta  { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.import-conflict {
+  background: #fffbf0; border: 1px solid #f0e0a0;
+  border-radius: 8px; padding: 12px; margin-bottom: 8px;
+}
+.import-conflict-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.import-conflict-opts { display: flex; flex-direction: column; gap: 6px; }
+.import-radio-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg); font-size: 13px;
+  transition: all .12s;
+}
+.import-radio-opt.selected { border-color: var(--black); background: var(--black); color: #fff; }
+.import-radio-opt input[type=radio] { display: none; }
+
 /* ── TOAST ── */
 #toast {
   position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
@@ -377,8 +399,12 @@ label {
       <div class="page-title">RUTINAS</div>
       <div class="page-sub">Tus planes guardados</div>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="openNewRoutineModal()" style="margin-top:6px">+ Nueva</button>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hevyFileInput').click()">↑ Hevy</button>
+      <button class="btn btn-ghost btn-sm" onclick="openNewRoutineModal()">+ Nueva</button>
+    </div>
   </div>
+  <input type="file" id="hevyFileInput" accept=".csv" style="display:none" onchange="handleHevyCSV(event)">
   <div id="rutinasContent"></div>
 </div>
 
@@ -434,6 +460,34 @@ label {
     </svg>
     Stats
   </button>
+</div>
+
+<!-- MODAL: IMPORTAR HEVY — ASIGNAR DÍAS -->
+<div class="modal-overlay" id="modal-hevy-assign">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">IMPORTAR DE HEVY</div>
+    <p style="font-size:13px;color:var(--sub);margin-bottom:16px">Elige dónde va cada entrenamiento detectado en el CSV.</p>
+    <div id="hevyAssignList"></div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-primary" onclick="hevyProceedToConflicts()">Continuar</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-hevy-assign')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: IMPORTAR HEVY — RESOLVER CONFLICTOS -->
+<div class="modal-overlay" id="modal-hevy-conflicts">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">EJERCICIOS NUEVOS</div>
+    <p style="font-size:13px;color:var(--sub);margin-bottom:16px">Estos ejercicios de Hevy no existen en tu biblioteca. Decide qué hacer con cada uno.</p>
+    <div id="hevyConflictList"></div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-primary" onclick="hevyFinishImport()">Importar todo</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-hevy-conflicts')">Cancelar</button>
+    </div>
+  </div>
 </div>
 
 <!-- MODAL: NUEVA / EDITAR RUTINA -->
@@ -1140,12 +1194,236 @@ function renderStats() {
   document.getElementById('statsContent').innerHTML = html;
 }
 
+// ══════════════════════════════════════════════════
+// HEVY CSV IMPORT
+// ══════════════════════════════════════════════════
+
+let hevyParsed = {};      // { workoutTitle: [{name, sets, reps}] }
+let hevyAssign = {};      // { workoutTitle: {routineId, dayIndex} }
+let hevyConflicts = [];   // [{hevyName, similar: exId|null, decision: 'new'|'merge'|exId}]
+
+function parseHevyCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].replace(/"/g,'').split(',');
+  const idx = h => headers.indexOf(h);
+
+  const workouts = {}; // title -> { exName -> sets[] }
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCSVLine(lines[i]);
+    const title    = row[idx('title')]          || '';
+    const exName   = row[idx('exercise_title')] || '';
+    const setType  = row[idx('set_type')]       || '';
+    const reps     = parseInt(row[idx('reps')]) || 0;
+    if (!title || !exName || setType === 'warmup') continue;
+    if (!workouts[title]) workouts[title] = {};
+    if (!workouts[title][exName]) workouts[title][exName] = [];
+    workouts[title][exName].push(reps);
+  }
+
+  // Summarise: for each exercise, count sets and compute rep range
+  const result = {};
+  Object.entries(workouts).forEach(([title, exercises]) => {
+    result[title] = Object.entries(exercises).map(([name, repsArr]) => {
+      const sets = repsArr.length;
+      const min = Math.min(...repsArr), max = Math.max(...repsArr);
+      const reps = min === max ? String(min) : `${min}–${max}`;
+      return {name, sets, reps};
+    });
+  });
+  return result;
+}
+
+function parseCSVLine(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function handleHevyCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    hevyParsed = parseHevyCSV(e.target.result);
+    event.target.value = '';
+    openHevyAssignModal();
+  };
+  reader.readAsText(file);
+}
+
+function openHevyAssignModal() {
+  const titles = Object.keys(hevyParsed);
+  if (!titles.length) { toast('No se encontraron entrenamientos'); return; }
+
+  // Build routine options
+  const routineOpts = data.routines.map(r =>
+    `<option value="${r.id}">${r.name}</option>`
+  ).join('');
+
+  const dayOpts = (routineId) => {
+    const r = data.routines.find(r => r.id === routineId);
+    if (!r) return '';
+    return (r.week||[]).map((d,i) =>
+      `<option value="${i}">${d.day} (${d.type})</option>`
+    ).join('');
+  };
+
+  // Init assignments
+  hevyAssign = {};
+  titles.forEach(t => {
+    hevyAssign[t] = {routineId: data.routines[0]?.id || '', dayIndex: 0};
+  });
+
+  const html = titles.map(title => {
+    const exCount = hevyParsed[title].length;
+    const firstRoutineId = data.routines[0]?.id || '';
+    return `<div class="import-workout-row">
+      <div class="import-workout-title">${title}</div>
+      <div class="import-workout-meta">${exCount} ejercicio${exCount!==1?'s':''}</div>
+      <label>Rutina destino</label>
+      <select id="assign-routine-${CSS.escape(title)}" onchange="updateDayOpts('${title.replace(/'/g,"\\'")}')">
+        ${routineOpts}
+      </select>
+      <label>Día destino</label>
+      <select id="assign-day-${CSS.escape(title)}">
+        ${dayOpts(firstRoutineId)}
+      </select>
+    </div>`;
+  }).join('');
+
+  document.getElementById('hevyAssignList').innerHTML = html;
+  openModal('modal-hevy-assign');
+}
+
+function updateDayOpts(title) {
+  const routineId = document.getElementById('assign-routine-' + CSS.escape(title)).value;
+  const r = data.routines.find(r => r.id === routineId);
+  const opts = (r?.week||[]).map((d,i) =>
+    `<option value="${i}">${d.day} (${d.type})</option>`
+  ).join('');
+  document.getElementById('assign-day-' + CSS.escape(title)).innerHTML = opts;
+}
+
+function hevyProceedToConflicts() {
+  // Read assignments
+  Object.keys(hevyParsed).forEach(title => {
+    const rSel = document.getElementById('assign-routine-' + CSS.escape(title));
+    const dSel = document.getElementById('assign-day-'     + CSS.escape(title));
+    hevyAssign[title] = {
+      routineId: rSel ? rSel.value : data.routines[0]?.id,
+      dayIndex:  dSel ? parseInt(dSel.value) : 0,
+    };
+  });
+
+  // Find exercises not in library — fuzzy match
+  const allHevyNames = [...new Set(
+    Object.values(hevyParsed).flatMap(exs => exs.map(e => e.name))
+  )];
+
+  hevyConflicts = [];
+  allHevyNames.forEach(hevyName => {
+    const exact = data.exercises.find(e => e.name.toLowerCase() === hevyName.toLowerCase());
+    if (exact) return; // already exists, no conflict
+    // fuzzy: check if any word matches
+    const similar = data.exercises.find(e => {
+      const hw = hevyName.toLowerCase().split(/\s+/);
+      const ew = e.name.toLowerCase().split(/\s+/);
+      return hw.some(w => w.length > 3 && ew.some(ew2 => ew2.includes(w) || w.includes(ew2)));
+    });
+    hevyConflicts.push({hevyName, similar: similar || null, decision: similar ? similar.id : 'new'});
+  });
+
+  closeModal('modal-hevy-assign');
+
+  if (!hevyConflicts.length) {
+    hevyFinishImport();
+    return;
+  }
+
+  // Render conflicts
+  const html = hevyConflicts.map((c, idx) => {
+    const similarOpt = c.similar
+      ? `<div class="import-radio-opt ${c.decision===c.similar.id?'selected':''}"
+           onclick="setConflictDecision(${idx},'${c.similar.id}',this.closest('.import-conflict-opts'))">
+           Usar existente: <strong>${c.similar.name}</strong>
+         </div>`
+      : '';
+    return `<div class="import-conflict">
+      <div class="import-conflict-name">Hevy: "${c.hevyName}"</div>
+      <div class="import-conflict-opts">
+        ${similarOpt}
+        <div class="import-radio-opt ${c.decision==='new'?'selected':''}"
+             onclick="setConflictDecision(${idx},'new',this.closest('.import-conflict-opts'))">
+          Crear ejercicio nuevo
+        </div>
+        <div class="import-radio-opt ${c.decision==='skip'?'selected':''}"
+             onclick="setConflictDecision(${idx},'skip',this.closest('.import-conflict-opts'))">
+          Ignorar este ejercicio
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('hevyConflictList').innerHTML = html;
+  openModal('modal-hevy-conflicts');
+}
+
+function setConflictDecision(idx, decision, container) {
+  hevyConflicts[idx].decision = decision;
+  container.querySelectorAll('.import-radio-opt').forEach(el => el.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+}
+
+function hevyFinishImport() {
+  // 1. Resolve exercise IDs — create new ones where needed
+  const nameToId = {};
+  hevyConflicts.forEach(c => {
+    if (c.decision === 'skip') return;
+    if (c.decision === 'new') {
+      const newEx = {id:'e'+Date.now()+Math.random().toString(36).slice(2,6),
+                     muscle:'m1', name:c.hevyName, notes:'Importado de Hevy'};
+      data.exercises.push(newEx);
+      nameToId[c.hevyName] = newEx.id;
+    } else {
+      nameToId[c.hevyName] = c.decision; // existing exercise id
+    }
+  });
+
+  // Also map exact matches
+  Object.values(hevyParsed).flatMap(e=>e).forEach(ex => {
+    if (nameToId[ex.name]) return;
+    const found = data.exercises.find(e => e.name.toLowerCase() === ex.name.toLowerCase());
+    if (found) nameToId[ex.name] = found.id;
+  });
+
+  // 2. Apply to each day
+  Object.entries(hevyParsed).forEach(([title, exercises]) => {
+    const {routineId, dayIndex} = hevyAssign[title];
+    const routine = data.routines.find(r => r.id === routineId);
+    if (!routine || !routine.week[dayIndex]) return;
+    const day = routine.week[dayIndex];
+    day.type = 'gym';
+    day.exercises = exercises
+      .filter(ex => nameToId[ex.name]) // skip ignored
+      .map(ex => ({exId: nameToId[ex.name], sets: ex.sets, reps: ex.reps}));
+  });
+
+  closeModal('modal-hevy-conflicts');
+  closeModal('modal-hevy-assign');
+  renderRutinas(); renderRutina(); renderStats();
+  scheduleSave();
+  toast('✓ Importación completada');
+}
+
+
 function populateMuscleDropdown(id) {
   const sel = document.getElementById(id);
-  const cur = sel.value;
-  const groups = {};
-  data.muscles.forEach(m => { if (!groups[m.group]) groups[m.group]=[]; groups[m.group].push(m); });
-  let html = '<option value="">— Selecciona músculo —</option>';
   Object.entries(groups).forEach(([g, ms]) => {
     html += `<optgroup label="${g}">`;
     ms.forEach(m => html += `<option value="${m.id}">${m.name}</option>`);
