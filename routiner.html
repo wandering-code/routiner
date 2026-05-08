@@ -622,37 +622,44 @@ async function loadData() {
     });
     if (!r.ok) throw new Error();
     const json = await r.json();
-    // migrate old formats
-    if (json.people !== undefined || !json.muscles) {
-      const defRoutine = {id:'r1', name:'Mi primera rutina', desc:'', week: DEFAULT_WEEK};
+    const isEmpty = !json.muscles || json.muscles.length === 0;
+    const isOldFormat = json.week && !json.routines;
+    const isLegacy = json.people !== undefined;
+
+    if (isLegacy || (isEmpty && !json.routines)) {
+      // Fresh or legacy bin — initialize with defaults
+      const defRoutine = {id:'r1', name:'Mi primera rutina', desc:'', week: JSON.parse(JSON.stringify(DEFAULT_WEEK))};
       data = {
         muscles: DEFAULT_MUSCLES, exercises: DEFAULT_EXERCISES,
         routines: [defRoutine], activeRoutineId: 'r1'
       };
       await saveNow();
-    } else if (json.week && !json.routines) {
-      // old format with week at root — migrate
+    } else if (isOldFormat) {
+      // Old format with week at root — migrate
       const defRoutine = {id:'r1', name:'Rutina principal', desc:'', week: json.week};
       data = {
-        muscles: json.muscles || DEFAULT_MUSCLES,
-        exercises: json.exercises || DEFAULT_EXERCISES,
+        muscles: json.muscles.length ? json.muscles : DEFAULT_MUSCLES,
+        exercises: json.exercises.length ? json.exercises : DEFAULT_EXERCISES,
         routines: [defRoutine], activeRoutineId: 'r1'
       };
       await saveNow();
     } else {
       data = {
-        muscles:         json.muscles         || DEFAULT_MUSCLES,
-        exercises:       json.exercises       || DEFAULT_EXERCISES,
+        muscles:         (json.muscles && json.muscles.length)   ? json.muscles   : DEFAULT_MUSCLES,
+        exercises:       (json.exercises && json.exercises.length) ? json.exercises : DEFAULT_EXERCISES,
         routines:        json.routines        || [],
         activeRoutineId: json.activeRoutineId || null,
       };
-      // ensure at least one routine exists
       if (!data.routines.length) {
-        const defRoutine = {id:'r1', name:'Rutina principal', desc:'', week: DEFAULT_WEEK};
+        const defRoutine = {id:'r1', name:'Rutina principal', desc:'', week: JSON.parse(JSON.stringify(DEFAULT_WEEK))};
         data.routines.push(defRoutine);
         data.activeRoutineId = 'r1';
         await saveNow();
       }
+      // ensure each routine has a full week
+      data.routines.forEach(r => {
+        if (!r.week || !r.week.length) r.week = JSON.parse(JSON.stringify(DEFAULT_WEEK));
+      });
     }
     setSyncStatus('ok');
   } catch(e) {
