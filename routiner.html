@@ -276,13 +276,14 @@ label {
 .muscle-group-label {
   font-size: 9px; color: var(--muted);
   letter-spacing: 2.5px; text-transform: uppercase;
-  padding: 16px 0 8px; border-bottom: 1px solid var(--border);
-  margin-bottom: 4px; font-weight: 600;
+  padding: 20px 0 8px; border-bottom: 2px solid var(--text);
+  margin-bottom: 8px; font-weight: 600;
 }
 .muscle-sublabel {
   font-size: 10px; color: var(--sub);
   letter-spacing: 1px; text-transform: uppercase;
-  padding: 10px 0 4px; font-weight: 600;
+  padding: 12px 0 4px; font-weight: 600;
+  border-top: 1px solid var(--border); margin-top: 6px;
 }
 .ex-item {
   display: flex; align-items: center; gap: 10px;
@@ -312,15 +313,13 @@ label {
   border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
 }
 .stat-name { font-size: 13px; color: var(--text); flex: 1; font-weight: 400; }
-.stat-bar-wrap { flex: 1; }
-.prog-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-.prog-fill { height: 100%; background: var(--black); border-radius: 2px; transition: width .5s ease; }
 .stat-num {
   font-family: 'Bebas Neue', sans-serif;
   font-size: 22px; color: var(--black);
   min-width: 32px; text-align: right; line-height: 1;
 }
 .stat-num.zero { color: var(--border2); }
+.stat-series-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; text-align: right; }
 
 /* ── PICK EX ── */
 .pick-ex-item {
@@ -926,7 +925,10 @@ function buildDayCard(d, i) {
   return `<div class="day-card" id="dcard-${i}">
     <div class="day-header" onclick="toggleDay(${i})">
       <div style="flex:1">
-        <div class="day-name">${d.day.toUpperCase()}</div>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <div class="day-name">${d.day.toUpperCase()}</div>
+          ${d.type==='gym' && (d.exercises||[]).length ? `<span style="font-size:11px;color:var(--muted);font-family:'Instrument Sans',sans-serif">${d.exercises.length} ejercicio${d.exercises.length!==1?'s':''}</span>` : ''}
+        </div>
         ${noteHtml}
       </div>
       <div style="display:flex;align-items:center;gap:8px">
@@ -975,7 +977,19 @@ function renderTempExList() {
   }
   cont.innerHTML = tempDayEx.map((item, idx) => {
     const ex = data.exercises.find(e => e.id === item.exId);
-    return `<div class="ex-row">
+    return `<div class="ex-row drag-item" draggable="true" data-idx="${idx}"
+      ondragstart="dragStart(event,${idx})"
+      ondragover="dragOver(event)"
+      ondrop="dragDrop(event,${idx})"
+      ondragend="dragEnd()"
+      style="cursor:grab">
+      <div style="color:var(--border2);padding-right:4px;cursor:grab;flex-shrink:0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="9" cy="6" r="1.2" fill="currentColor"/><circle cx="15" cy="6" r="1.2" fill="currentColor"/>
+          <circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/>
+          <circle cx="9" cy="18" r="1.2" fill="currentColor"/><circle cx="15" cy="18" r="1.2" fill="currentColor"/>
+        </svg>
+      </div>
       <div class="ex-info">
         <div class="ex-name">${ex ? ex.name : '(eliminado)'}</div>
         <div class="ex-meta">${item.sets||0} series · ${item.reps||'—'} reps</div>
@@ -995,6 +1009,68 @@ function renderTempExList() {
       </div>
     </div>`;
   }).join('');
+
+  // Touch-based drag for mobile
+  initTouchDrag(cont);
+}
+
+let dragSrcIdx = null;
+function dragStart(e, idx) { dragSrcIdx = idx; e.dataTransfer.effectAllowed = 'move'; }
+function dragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+function dragDrop(e, targetIdx) {
+  e.preventDefault();
+  if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+  const moved = tempDayEx.splice(dragSrcIdx, 1)[0];
+  tempDayEx.splice(targetIdx, 0, moved);
+  renderTempExList();
+}
+function dragEnd() { dragSrcIdx = null; }
+
+function initTouchDrag(cont) {
+  let touchItem = null, touchStartY = 0, clone = null, origIdx = null;
+  cont.querySelectorAll('.drag-item').forEach((el, idx) => {
+    el.addEventListener('touchstart', e => {
+      touchItem = el; origIdx = idx; touchStartY = e.touches[0].clientY;
+      clone = el.cloneNode(true);
+      clone.style.cssText = `position:fixed;left:${el.getBoundingClientRect().left}px;width:${el.offsetWidth}px;opacity:.8;pointer-events:none;z-index:999;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:8px 14px;`;
+      document.body.appendChild(clone);
+      el.style.opacity = '.3';
+    }, {passive:true});
+    el.addEventListener('touchmove', e => {
+      if (!clone) return;
+      const y = e.touches[0].clientY;
+      clone.style.top = (y - 20) + 'px';
+      // find target
+      const items = [...cont.querySelectorAll('.drag-item')];
+      items.forEach((item, i) => {
+        const r = item.getBoundingClientRect();
+        if (y > r.top && y < r.bottom && i !== origIdx) {
+          item.style.borderTop = i < origIdx ? '2px solid var(--black)' : '';
+          item.style.borderBottom = i > origIdx ? '2px solid var(--black)' : '';
+        } else {
+          item.style.borderTop = ''; item.style.borderBottom = '';
+        }
+      });
+    }, {passive:true});
+    el.addEventListener('touchend', e => {
+      if (!clone) return;
+      clone.remove(); clone = null;
+      touchItem.style.opacity = '1';
+      const y = e.changedTouches[0].clientY;
+      const items = [...cont.querySelectorAll('.drag-item')];
+      items.forEach(item => { item.style.borderTop=''; item.style.borderBottom=''; });
+      let targetIdx = origIdx;
+      items.forEach((item, i) => {
+        const r = item.getBoundingClientRect();
+        if (y > r.top && y < r.bottom) targetIdx = i;
+      });
+      if (targetIdx !== origIdx) {
+        const moved = tempDayEx.splice(origIdx, 1)[0];
+        tempDayEx.splice(targetIdx, 0, moved);
+        renderTempExList();
+      }
+    }, {passive:true});
+  });
 }
 
 function removeTempEx(idx) { tempDayEx.splice(idx,1); renderTempExList(); }
@@ -1185,13 +1261,12 @@ function renderStats() {
     html += `<div class="section-label">${g}</div>`;
     muscles.forEach(m => {
       const v = totals[m.id] || 0;
-      const pct = Math.round((v/maxVal)*100);
       html += `<div class="stat-row">
         <div class="stat-name">${m.name}</div>
-        <div class="stat-bar-wrap">
-          <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+        <div style="text-align:right">
+          <div class="stat-num ${v===0?'zero':''}">${v}</div>
+          <div class="stat-series-label">series</div>
         </div>
-        <div class="stat-num ${v===0?'zero':''}">${v}</div>
       </div>`;
     });
   });
