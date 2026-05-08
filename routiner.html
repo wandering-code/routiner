@@ -1070,6 +1070,11 @@ function confirmPickEx() {
 
 function renderEjercicios() {
   populateMuscleDropdown('exMuscle');
+  if (!data.muscles || !data.muscles.length) {
+    document.getElementById('ejerciciosContent').innerHTML =
+      '<div class="empty-day" style="padding:40px 0">Cargando ejercicios...</div>';
+    return;
+  }
   const groups = {};
   data.muscles.forEach(m => { if (!groups[m.group]) groups[m.group]=[]; groups[m.group].push(m); });
   let html = '';
@@ -1080,7 +1085,7 @@ function renderEjercicios() {
       html += `<div class="muscle-sublabel">${m.name}</div>`;
       if (exs.length) {
         html += exs.map(e =>
-          `<div class="ex-item" onclick="openEditExModal('${e.id}')">
+          `<div class="ex-item" data-exid="${e.id}" onclick="openEditExModal(this.dataset.exid)">
             <div style="flex:1">
               <div class="ex-item-name">${e.name}</div>
               ${e.notes ? `<div class="ex-item-note">${e.notes}</div>` : ''}
