@@ -226,7 +226,7 @@ html, body {
 .btn-icon svg { display: block; width: 15px; height: 15px; }
 
 /* ── INPUTS ── */
-input, select, textarea {
+input[type=text], input[type=number], input[type=email], select, textarea {
   background: var(--surface);
   border: 1px solid var(--border2);
   color: var(--text);
@@ -1212,22 +1212,36 @@ function parseHevyCSV(text) {
   const headers = lines[0].replace(/"/g,'').split(',');
   const idx = h => headers.indexOf(h);
 
-  const workouts = {}; // title -> { exName -> sets[] }
+  // Group by title+start_time to get individual sessions
+  const sessions = {}; // "title|start_time" -> { exName -> reps[] }
+  const sessionDates = {}; // title -> [{key, date}]
+
   for (let i = 1; i < lines.length; i++) {
     const row = parseCSVLine(lines[i]);
-    const title    = row[idx('title')]          || '';
-    const exName   = row[idx('exercise_title')] || '';
-    const setType  = row[idx('set_type')]       || '';
-    const reps     = parseInt(row[idx('reps')]) || 0;
+    const title     = row[idx('title')]          || '';
+    const startTime = row[idx('start_time')]     || '';
+    const exName    = row[idx('exercise_title')] || '';
+    const setType   = row[idx('set_type')]       || '';
+    const reps      = parseInt(row[idx('reps')]) || 0;
     if (!title || !exName || setType === 'warmup') continue;
-    if (!workouts[title]) workouts[title] = {};
-    if (!workouts[title][exName]) workouts[title][exName] = [];
-    workouts[title][exName].push(reps);
+    const key = title + '|||' + startTime;
+    if (!sessions[key]) {
+      sessions[key] = {};
+      if (!sessionDates[title]) sessionDates[title] = [];
+      sessionDates[title].push({key, startTime});
+    }
+    if (!sessions[key][exName]) sessions[key][exName] = [];
+    sessions[key][exName].push(reps);
   }
 
-  // Summarise: for each exercise, count sets and compute rep range
+  // For each title, pick the most recent session
   const result = {};
-  Object.entries(workouts).forEach(([title, exercises]) => {
+  Object.entries(sessionDates).forEach(([title, entries]) => {
+    // Sort by startTime descending — format "29 abr 2026, 20:16"
+    // Just use string sort as a proxy (same format, last alphabetically ≈ most recent)
+    entries.sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const bestKey = entries[0].key;
+    const exercises = sessions[bestKey];
     result[title] = Object.entries(exercises).map(([name, repsArr]) => {
       const sets = repsArr.length;
       const min = Math.min(...repsArr), max = Math.max(...repsArr);
@@ -1371,10 +1385,12 @@ function hevyProceedToConflicts() {
   }
 
   // Render conflicts
+  const muscleOpts = data.muscles.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
   const html = hevyConflicts.map((c, idx) => {
     const similarOpt = c.similar
       ? `<div class="import-radio-opt ${c.decision===c.similar.id?'selected':''}"
-           onclick="setConflictDecision(${idx},'${c.similar.id}',this.closest('.import-conflict-opts'))">
+             data-idx="${idx}" data-decision="${c.similar.id}"
+             onclick="setConflictDecision(${idx},'${c.similar.id}',this.closest('.import-conflict-opts'))">
            Usar existente: <strong>${c.similar.name}</strong>
          </div>`
       : '';
@@ -1391,6 +1407,15 @@ function hevyProceedToConflicts() {
           Ignorar este ejercicio
         </div>
       </div>
+      <div id="new-ex-fields-${idx}" style="margin-top:10px;display:${c.decision==='new'?'block':'none'}">
+        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:block">Nombre</label>
+        <input type="text" id="new-ex-name-${idx}" value="${c.hevyName}"
+          style="margin-bottom:8px;font-size:13px;padding:9px 12px">
+        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:block">Músculo</label>
+        <select id="new-ex-muscle-${idx}" style="font-size:13px;padding:9px 12px">
+          ${muscleOpts}
+        </select>
+      </div>
     </div>`;
   }).join('');
 
@@ -1402,20 +1427,30 @@ function setConflictDecision(idx, decision, container) {
   hevyConflicts[idx].decision = decision;
   container.querySelectorAll('.import-radio-opt').forEach(el => el.classList.remove('selected'));
   event.currentTarget.classList.add('selected');
+  const fields = document.getElementById('new-ex-fields-' + idx);
+  if (fields) fields.style.display = decision === 'new' ? 'block' : 'none';
 }
 
 function hevyFinishImport() {
   // 1. Resolve exercise IDs — create new ones where needed
   const nameToId = {};
-  hevyConflicts.forEach(c => {
+  hevyConflicts.forEach((c, idx) => {
     if (c.decision === 'skip') return;
     if (c.decision === 'new') {
-      const newEx = {id:'e'+Date.now()+Math.random().toString(36).slice(2,6),
-                     muscle:'m1', name:c.hevyName, notes:'Importado de Hevy'};
+      const nameEl   = document.getElementById('new-ex-name-'   + idx);
+      const muscleEl = document.getElementById('new-ex-muscle-' + idx);
+      const finalName   = nameEl   ? nameEl.value.trim()   : c.hevyName;
+      const finalMuscle = muscleEl ? muscleEl.value        : 'm1';
+      const newEx = {
+        id: 'e' + Date.now() + Math.random().toString(36).slice(2,6),
+        muscle: finalMuscle,
+        name: finalName || c.hevyName,
+        notes: 'Importado de Hevy'
+      };
       data.exercises.push(newEx);
       nameToId[c.hevyName] = newEx.id;
     } else {
-      nameToId[c.hevyName] = c.decision; // existing exercise id
+      nameToId[c.hevyName] = c.decision;
     }
   });
 
